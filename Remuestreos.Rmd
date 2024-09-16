@@ -1,0 +1,341 @@
+---
+title: "remuestreo"
+author: ""
+date: "10/7/2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Para el presente trabajo, los datos de aplicación son acerca del número frutos de bayas cosechables, según los kilogramos cosechados por hectárea y las horas de calor, donde:
+
+ - $Y =$  kg.ha : $kg . ha^{-1}$ de bayas de arándano cosechadas por semana en una válvula del fundo.
+
+ - $X_1 =$ BayasCosechables: promedio del número de frutos cosechables por planta registrados por semana en una válvula.
+
+ - $X_2 =$ Hcalor : Acumulado de horas de calor (con temperatura mayor a los 24 °C) registrados en la semana.
+
+
+```{r}
+datos <- readxl::read_xlsx("Cosecha arandano.xlsx", sheet = "Hoja1")
+str(datos)
+library(dplyr)
+datos <- mutate(datos, Kg.ha = KgCosechados/Hectareas)
+
+datos <- datos %>% 
+  filter(!Kg.ha %in% "0")
+
+datos <- datos[,c(7,10,11)]
+
+datos <- na.omit(datos)
+RNGkind(sample.kind = "Rounding")
+set.seed(100)
+datos <- datos[sample(nrow(datos),100,replace = F),]
+datos
+```
+
+# Análisis exploratorio y descriptivo
+
+La data cuenta con un total de 100 observaciones (n=100).
+
+```{r}
+library(summarytools)
+summarytools::descr(datos)
+```
+
+Se observa que la media (Mean) de la variable BayasCosechables es de 80.58 frutos por planta en una semana, y que la media del acumulado de horas de calor(HCalor) es 21.82 unidades, y por último se tiene que la media de la variable rendimiento de frutos de arándanos cosechadas por hectarea es de 385.63 $kg. ha^{-1}$ en una válvula del fundo.
+ 
+
+```{r}
+#Generando gráfico de dispersión del número de bayas cosechables vs los Kg Cosechados por hectárea
+library(ggplot2)
+datos %>% 
+  ggplot(aes(x=BayasCosechables,y=Kg.ha))+
+  geom_point(position = "jitter", size=3, colour="red")+
+  labs( title = "DIAGRAMA DE DISPERSIÓN")+
+  geom_smooth(method = "lm")+
+  theme_test()
+```
+
+En el siguiente gráfico de diagrama de dispersión, se aprecia que las observaciones del número de bayas cosechables vs los Kg Cosechados por hectárea son muy dispersos asi como también se observa que tenemos valores atipicos, en el número de BayasCosechales aproximadamente igual a 60 se tienen más de 1000 Kg cocechados por hectárea. Pero estos casos con menor número de bayas y una mayor productividad se pueden deber a que el peso promedio de los frutos en esas válvulas (observaciones) es mayor, por un comportamiento agronómico propio de la variedad. Las plantas de determinadas variedades de arándano y la mayoría de cultivos que presentan menor número de frutos, presentan regularmente un mayor peso promedio de frutos.
+
+Las observaciones mas altas los puntos se alejan más de la recta, pero podriamos suponer que los datos siguen una distribución lineal. Por otro lado, se puede observar que la dispersión de la respuesta "Y" observada, tiene mayor error con respecto a la media condicional de la recta de regresión, a medida que el valor de x aumenta, lo que sería evidencia de un incumplimiento del supuesto de homocedasticidad.
+
+
+```{r}
+#Generando gráfico de dispersión del número de bayas cosechables vs los Kg Cosechados por hectárea
+datos %>% 
+  ggplot(aes(x=Hcalor,y=Kg.ha))+
+  geom_point(position = "jitter", size=3, colour="red")+
+  labs( title = "DIAGRAMA DE DISPERSIÓN")+
+  geom_smooth(method = "lm")+
+  theme_test()
+```
+
+Se puede observar, que el acumulado de horas de calor (mayores de 24 °C) por semana tienen una relación inversa con los $Kg.ha^-1$ de bayas de arándano registrados por válvula, lo que supone que, a medida que el clima se torne más frío (temporada de otoño - invierto) la productividad del arándano es mayor.
+
+# Modelo de regresión lineal multiple
+
+A continuación presentamos el modelo:
+
+$$Kg.ha=\beta_0+\beta_1*BayasCosechables+\beta_2*Hcalor$$
+
+```{r}
+summary(lm(Kg.ha~BayasCosechables+Hcalor,datos))
+```
+
+
+### Interpretración de los coeficientes del modelo de regresión:
+
+
+-   Intercept: En nuestro caso, el intercepto no tiene interpretación coherente con la aplicación dado que si el número de bayas cosechas promedio por planta es cero entonces una valvula no tendría  rendimiento.
+
+-   $BayasCosechables$: Por cada incremento de una unidad de $BayasCosechables$, el promedio de $Kg.ha$ de bayas de arándano cosechadas por semana en una válvula del fundo aumenta en $3.1548$ (unidades), luego de mantener fijo las demás variables. Con un nivel de significancia de 5%, esta relación es altamente significativa $(p=9.53e-09)$.
+
+-   $Hcalor$: Por cada incremento de una unidad de $Hcalor$, el promedio de $Kg.ha$ de bayas de arándano cosechadas por semana en una válvula del fundo aumenta en $0.8662$ (unidades), luego de mantener fijo las demás variables. Con un nivel de significancia de 5%, esta relación no es significativa $(p=0.4416)$.
+
+
+# Método de Bootstrap
+
+
+```{r}
+boot3<-function(datos,B,estadistico,...){
+  n<-nrow(datos)
+  p<-ncol(datos)
+  estaboot<-matrix(0,B,p)
+  for(i in 1:B){
+    indices<-sample(1:n,n,T)
+    estaboot[i,]<-estadistico(datos[indices,],...)
+  }
+  
+  esboot<-apply(estaboot,2,mean)
+  eeboot<-apply(estaboot,2,sd)
+  return(list(esboot=esboot,eeboot=eeboot))
+}
+
+coefi<-function(datos,y){
+  datos<-as.matrix(datos)
+  betas<-lm(datos[,y]~datos[,-y])$coe
+  return(betas)
+}
+
+
+boot1<-function(datos,B,estadistico,...){
+  n<-nrow(datos)
+  p<-ncol(datos)
+  estaboot<-matrix(0,B,p)
+  for(i in 1:B){
+    indices<-sample(1:n,n,T)
+    estaboot[i,]<-estadistico(datos[indices,],...)
+  }
+  
+  esboot<-mean(estaboot)
+  eeboot<-sd(estaboot)
+  return(list(esboot=esboot,eeboot=eeboot))
+}
+
+r2adj<-function(datos,y){
+  datos<-as.matrix(datos)
+  r2adj <- summary(lm(datos[,y]~datos[,-y]))$adj.r.squared
+  return(r2.adj = r2adj)
+}
+
+# coefi(datos,3)
+
+RNGkind(sample.kind="Rounding")
+set.seed(99)
+boot3(datos,50,coefi,3)
+boot1(datos,50,r2adj,3)
+```
+
+
+# Validación cruzada
+
+
+```{r}
+crossval<-function(datos,K,r,d){
+  datos<-as.matrix(datos)
+  n<-nrow(datos)
+  EVC<-c()
+  resid<-c()
+  subm<-floor(n/K)
+  resi<-lm(datos[,d]~datos[,-d])$res
+  APE<-sum(resi^2)/n
+  for(i in 1:r){
+    indices<-sample(n,n)
+    azar<-datos[indices,]
+    
+    for(j in 1:K){
+      unid<- ((j-1)*subm+1):(subm*j)
+      if (j==K)
+      {
+        unid<-((j-1)*subm+1):n
+      }
+      datosp<-azar[unid,]
+      datose<-azar[-unid,]
+      ye<-datose[,d]
+      xe<-datose[,-d]
+      betas<-lm(ye~xe)$coef
+      r2adj <- summary(lm(ye~xe))$adj.r.squared
+      datosp1<-cbind(1,datosp[,-d])
+      estim<-datosp1%*%betas
+      resid[j]<-sum((datosp[,d]-estim)^2)
+    }
+    EVC[i]<-sum(resid)/n
+  }
+  EVCP<-mean(EVC)
+  cvEVC<-sd(EVC)*100/EVCP
+  sesgo<-EVCP-APE
+  return(list(betas = betas, r2.adj = r2adj, APE=APE,EVCP=EVCP,cvEVC=cvEVC,sesgo=sesgo))
+}
+
+RNGkind(sample.kind="Rounding")
+set.seed(80)
+crossval(datos,10,1,3)
+
+```
+
+
+# Validación cruzada repetida
+
+
+```{r}
+crossval<-function(datos,K,r,d){
+  datos<-as.matrix(datos)
+  n<-nrow(datos)
+  EVC<-c()
+  resid<-c()
+  subm<-floor(n/K)
+  resi<-lm(datos[,d]~datos[,-d])$res
+  APE<-sum(resi^2)/n
+  for(i in 1:r){
+    indices<-sample(n,n)
+    azar<-datos[indices,]
+    
+    for(j in 1:K){
+      unid<- ((j-1)*subm+1):(subm*j)
+      if (j==K)
+      {
+        unid<-((j-1)*subm+1):n
+      }
+      datosp<-azar[unid,]
+      datose<-azar[-unid,]
+      ye<-datose[,d]
+      xe<-datose[,-d]
+      betas<-lm(ye~xe)$coef
+      r2adj <- summary(lm(ye~xe))$adj.r.squared
+      datosp1<-cbind(1,datosp[,-d])
+      estim<-datosp1%*%betas
+      resid[j]<-sum((datosp[,d]-estim)^2)
+    }
+    EVC[i]<-sum(resid)/n
+  }
+  EVCP<-mean(EVC)
+  cvEVC<-sd(EVC)*100/EVCP
+  sesgo<-EVCP-APE
+  return(list(betas = betas, r2.adj = r2adj, APE=APE,EVCP=EVCP,cvEVC=cvEVC,sesgo=sesgo))
+}
+
+RNGkind(sample.kind="Rounding")
+set.seed(80)
+crossval(datos,10,5,3)
+
+```
+
+
+# LOOCV
+
+
+```{r}
+jack2<-function(datos,estadistico,...){
+  n<-nrow(datos)
+  estjack<-c()
+  for(i in 1:n){
+    estjack[i]<-estadistico(datos[-i,],...)
+  }
+  esjack<-mean(estjack)
+  eejack<-(n-1)*sd(estjack)/sqrt(n)
+  return(list(esjack=esjack,eejack=eejack)) 
+}
+
+coefi1<-function(datos,y){
+  datos<-as.matrix(datos)
+  betas<-lm(datos[,y]~datos[,-y])$coe
+  return(Intercepto = betas[1])
+}
+
+coefi2<-function(datos,y){
+  datos<-as.matrix(datos)
+  betas<-lm(datos[,y]~datos[,-y])$coe
+  return(beta1 = betas[2])
+}
+
+coefi3<-function(datos,y){
+  datos<-as.matrix(datos)
+  betas<-lm(datos[,y]~datos[,-y])$coe
+  return(beta2 = betas[3])
+}
+
+r2adj<-function(datos,y){
+  datos<-as.matrix(datos)
+  r2adj <- summary(lm(datos[,y]~datos[,-y]))$adj.r.squared
+  return(r2.adj = r2adj)
+}
+
+# coefi1(datos,3)
+
+RNGkind(sample.kind="Rounding")
+set.seed(99)
+jack2(datos,coefi1,3)
+jack2(datos,coefi2,3)
+jack2(datos,coefi3,3)
+jack2(datos,r2adj,3)
+```
+
+
+# Resumen General
+
+
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *Método*              | $\beta_0$       | $\beta_1$      | $\beta_2$       |$R^2$ **ajustado** |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *Regresion lineal*    | 112.507 (60.08) | 3.154 (0.50)   | 0.866 (1.12)    |  0.304 (213.5)    |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *Bootstrap*           | 118.954 (48.09) | 3.153 (0.37)   | 0.485 (1.05)    |  0.303 (0.07)     |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *K - Fold CV*         | 101.106 ()      | 3.251 ()       | 0.611 ()        |  0.349 ()         |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *K - Fold CV Repetido*| 106.626 ()      | 3.268 ()       | 0.479 ()        |  0.342 ()         |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+| *LOOCV*               | 112.504 (53.23) | 3.154 (0.42)   | 0.865 (1.26)    |  0.304 (0.07)     |
++-----------------------+-----------------+----------------+-----------------+-------------------+
+
+
+### Nota:
+
+$\beta_1$ -\> Coeficiente de Bayas cosechables.
+
+$\beta_2$ -\> Coeficiente de Horas de calor.
+
+
+# Resultados finales:
+
+
+ - El método de remuestreo más optimistas fue es K - Fold CV con un $R^2$ **ajustado** de 0.349.
+
+ - Elmétodo de remuestreo  pesimista fueron el LOOCV y Bootstrap con un $R^2$ **ajustado** de 0.304 y 0.303 respectivamente.
+
+ - El método de remuestro válido fue el  K - Fold CV Repetido con un $R^2$ **ajustado** de 0.342.
+
+
+# Conclusiones:
+
+
+ - En el presente trabajo, consideramos que el **método de remuestreo válido**  para la aplicación del rendimiento de frutos por hectarea según la influencia del número de bayas cosechables por planta y de las horas de calor acumuladas por semana fue el método de K - Fold CV Repetido por tener un  $R^2$ **ajustado** optimo de 0.342.
+
+ - En el presente trabajo, consideramos que el **método de remuestreo más optimista**  para la aplicación del rendimiento de frutos por hectarea según la influencia del número de bayas cosechables por planta y de las horas de calor acumuladas por semana fue el método de K - Fold CV con un $R^2$ **ajustado** de 0.349.
+
+ - En el presente trabajo, consideramos que el **método de remuestreo pesimista**  para la aplicación del rendimiento de frutos por hectarea según la influencia del número de bayas cosechables por planta y de las horas de calor acumuladas por semana fueron el método de LOOCV y el Bootstrap con un $R^2$ **ajustado** de 0.304 y 0.303 respectivamente.
+
